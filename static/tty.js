@@ -52,16 +52,10 @@ tty.elements;
  * Open
  */
 
-tty.open = function() {
-  if (document.location.pathname) {
-    var parts = document.location.pathname.split('/')
-      , base = parts.slice(0, parts.length - 1).join('/') + '/'
-      , resource = base.substring(1) + 'socket.io';
-
-    tty.socket = io.connect(null, { resource: resource });
-  } else {
-    tty.socket = io.connect();
-  }
+tty.open = function(kayleeHost, terminalId) {
+  // TODO: set up reconnecton delay
+  tty.kayleeHost = kayleeHost;
+  tty.terminalId = terminalId;
 
   tty.windows = [];
   tty.terms = {};
@@ -80,73 +74,47 @@ tty.open = function() {
   open = tty.elements.open;
   lights = tty.elements.lights;
 
-  if (open) {
-    on(open, 'click', function() {
-      new Window;
-    });
-  }
-
   if (lights) {
     on(lights, 'click', function() {
       tty.toggleLights();
     });
   }
 
-  tty.socket.on('connect', function() {
-    tty.reset();
-    tty.emit('connect');
+  tty.removeAllListeners('connect');
+  tty.once('connect', function() {
+    tty.socket.sendMessage('attach', {"terminal_id": tty.terminalId});
   });
 
-  tty.socket.on('data', function(id, data) {
-    if (!tty.terms[id]) return;
-    tty.terms[id].write(data);
+  // Remove all listeners assigned during previous usage of the 'tty' object
+  tty.removeAllListeners('destroy');
+  tty.once('destroy', function(terminalId) {
+    if (terminalId && terminalId != tty.terminalId) return;
+    tty.socket.close();
   });
 
-  tty.socket.on('kill', function(id) {
-    if (!tty.terms[id]) return;
-    tty.terms[id]._destroy();
-  });
-
-  // XXX Clean this up.
-  tty.socket.on('sync', function(terms) {
-    console.log('Attempting to sync...');
-    console.log(terms);
-
-    tty.reset();
-
-    var emit = tty.socket.emit;
-    tty.socket.emit = function() {};
-
-    Object.keys(terms).forEach(function(key) {
-      var data = terms[key]
-        , win = new Window
-        , tab = win.tabs[0];
-
-      delete tty.terms[tab.id];
-      tab.pty = data.pty;
-      tab.id = data.id;
-      tty.terms[data.id] = tab;
-      win.resize(data.cols, data.rows);
-      tab.setProcessName(data.process);
-      tty.emit('open tab', tab);
-      tab.emit('open');
-    });
-
-    tty.socket.emit = emit;
-  });
-
-  // We would need to poll the os on the serverside
-  // anyway. there's really no clean way to do this.
-  // This is just easier to do on the
-  // clientside, rather than poll on the
-  // server, and *then* send it to the client.
-  setInterval(function() {
-    var i = tty.windows.length;
-    while (i--) {
-      if (!tty.windows[i].focused) continue;
-      tty.windows[i].focused.pollProcessName();
+  // Kaylee protocol handlers
+  tty.removeAllListeners('attach');
+  tty.once('attach', function(msg) {
+    console.log("Attach response received");
+    if (msg.status != 200) {
+      console.log("Attach failed:", msg);
+      return;
     }
-  }, 2 * 1000);
+    var win = new Window
+      , tab = win.tabs[0];
+    tab.id = tty.terminalId;
+    tab.setProcessName("Terminal ID: " + tab.id);
+    tty.terms[tty.terminalId] = tab;
+    tab.emit('open');
+    // TODO: send terminal width & height
+  });
+
+  tty.removeAllListeners('tty');
+  tty.on('tty', function(msg) {
+    tty.terms[tty.terminalId].write(Base64.decode(msg.stream));
+  });
+
+  tty.connect();
 
   // Keep windows maximized.
   on(window, 'resize', function() {
@@ -164,6 +132,38 @@ tty.open = function() {
 
   tty.emit('load');
   tty.emit('open');
+};
+
+/**
+ * Connect
+ */
+
+tty.connect = function() {
+  tty.socket = new SockJS('http://' + tty.kayleeHost + ':8888/sockjs');
+
+  tty.socket.onopen = function() {
+    tty.reset();
+    tty.emit('connect');
+  };
+
+  tty.socket.onmessage = function(message) {
+    var msg = JSON.parse(message.data);
+    if (typeof msg.msg === 'string') {
+      tty.emit(msg.msg, msg);
+    }
+  };
+
+  tty.socket.onclose = function() {
+    console.log("Connection closed");
+    // TODO: reconnect
+    tty.reset();
+  };
+
+  tty.socket.sendMessage = function(messageType, messageArgs) {
+    msg = messageArgs || {};
+    msg.msg = messageType;
+    tty.socket.send(JSON.stringify(msg));
+  };
 };
 
 /**
@@ -588,16 +588,6 @@ function Tab(win, socket) {
   this.hookKeys();
 
   win.tabs.push(this);
-
-  this.socket.emit('create', cols, rows, function(err, data) {
-    if (err) return self._destroy();
-    self.pty = data.pty;
-    self.id = data.id;
-    tty.terms[self.id] = self;
-    self.setProcessName(data.process);
-    tty.emit('open tab', self);
-    self.emit('open');
-  });
 };
 
 inherits(Tab, Terminal);
@@ -605,7 +595,7 @@ inherits(Tab, Terminal);
 // We could just hook in `tab.on('data', ...)`
 // in the constructor, but this is faster.
 Tab.prototype.handler = function(data) {
-  this.socket.emit('data', this.id, data);
+  this.socket.sendMessage('tty', {"stream": Base64.encode(data)});
 };
 
 // We could just hook in `tab.on('title', ...)`
@@ -712,7 +702,7 @@ Tab.prototype._destroy = function() {
 
 Tab.prototype.destroy = function() {
   if (this.destroyed) return;
-  this.socket.emit('kill', this.id);
+  tty.emit('destroy', this.id);
   this._destroy();
   tty.emit('close tab', this);
   this.emit('close');
@@ -885,23 +875,6 @@ function sanitize(text) {
   if (!text) return '';
   return (text + '').replace(/[&<>]/g, '')
 }
-
-/**
- * Load
- */
-
-function load() {
-  if (load.done) return;
-  load.done = true;
-
-  off(document, 'load', load);
-  off(document, 'DOMContentLoaded', load);
-  tty.open();
-}
-
-on(document, 'load', load);
-on(document, 'DOMContentLoaded', load);
-setTimeout(load, 200);
 
 /**
  * Expose
