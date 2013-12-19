@@ -662,7 +662,7 @@ Tab.prototype.focus = function() {
 Tab.prototype._resize = Tab.prototype.resize;
 
 Tab.prototype.resize = function(cols, rows) {
-  this.socket.emit('resize', this.id, cols, rows);
+  this.socket.sendMessage('resize', {"rows": rows, "cols": cols});
   this._resize(cols, rows);
   tty.emit('resize tab', this, cols, rows);
   this.emit('resize', cols, rows);
