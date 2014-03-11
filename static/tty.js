@@ -564,24 +564,9 @@ function Tab(win, socket) {
     rows: rows
   });
 
-  var button = document.createElement('div');
-  button.className = 'tab';
-  button.innerHTML = '\u2022';
-  win.bar.appendChild(button);
-
-  on(button, 'click', function(ev) {
-    if (ev.ctrlKey || ev.altKey || ev.metaKey || ev.shiftKey) {
-      self.destroy();
-    } else {
-      self.focus();
-    }
-    return cancel(ev);
-  });
-
   this.id = '';
   this.socket = socket || tty.socket;
   this.window = win;
-  this.button = button;
   this.element = null;
   this.process = '';
   this.open();
@@ -620,7 +605,6 @@ Tab.prototype.handleTitle = function(title) {
 Tab.prototype._write = Tab.prototype.write;
 
 Tab.prototype.write = function(data) {
-  if (this.window.focused !== this) this.button.style.color = 'red';
   return this._write(data);
 };
 
@@ -637,7 +621,6 @@ Tab.prototype.focus = function() {
       if (win.focused.element.parentNode) {
         win.focused.element.parentNode.removeChild(win.focused.element);
       }
-      win.focused.button.style.fontWeight = '';
     }
 
     win.element.appendChild(this.element);
@@ -645,8 +628,6 @@ Tab.prototype.focus = function() {
 
     win.title.innerHTML = this.process;
     document.title = this.title || initialTitle;
-    this.button.style.fontWeight = 'bold';
-    this.button.style.color = '';
   }
 
   this.handleTitle(this.title);
@@ -676,7 +657,6 @@ Tab.prototype._destroy = function() {
 
   var win = this.window;
 
-  this.button.parentNode.removeChild(this.button);
   if (this.element.parentNode) {
     this.element.parentNode.removeChild(this.element);
   }
@@ -844,7 +824,6 @@ Tab.prototype.setProcessName = function(name) {
   }
 
   this.process = name;
-  this.button.title = name;
 
   if (this.window.focused === this) {
     // if (this.title) {
