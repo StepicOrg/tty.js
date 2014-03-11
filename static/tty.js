@@ -52,9 +52,9 @@ tty.elements;
  * Open
  */
 
-tty.open = function(kayleeHost, terminalId) {
+tty.open = function(kayleeUrl, terminalId) {
   // TODO: set up reconnecton delay
-  tty.kayleeHost = kayleeHost;
+  tty.kayleeUrl = kayleeUrl;
   tty.terminalId = terminalId;
 
   tty.windows = [];
@@ -139,7 +139,7 @@ tty.open = function(kayleeHost, terminalId) {
  */
 
 tty.connect = function() {
-  tty.socket = new SockJS('http://' + tty.kayleeHost + ':8888/sockjs');
+  tty.socket = new SockJS(tty.kayleeUrl);
 
   tty.socket.onopen = function() {
     tty.reset();
