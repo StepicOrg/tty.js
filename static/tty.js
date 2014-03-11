@@ -217,8 +217,8 @@ function Window(socket) {
   bar.className = 'bar';
 
   button = document.createElement('div');
-  button.innerHTML = '~';
-  button.title = 'new/close';
+  button.innerHTML = '<i class="fa fa-times"></i>';
+  button.title = 'Close terminal';
   button.className = 'tab';
 
   title = document.createElement('div');
@@ -267,11 +267,7 @@ Window.prototype.bind = function() {
     , last = 0;
 
   on(button, 'click', function(ev) {
-    if (ev.ctrlKey || ev.altKey || ev.metaKey || ev.shiftKey) {
-      self.destroy();
-    } else {
-      self.createTab();
-    }
+    self.destroy();
     return cancel(ev);
   });
 
